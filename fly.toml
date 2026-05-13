@@ -1,0 +1,11 @@
+app = "vpn-proxy"
+
+[env]
+  PORT = "1080"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 1080
+
+  [[services.ports]]
+    port = 1080

@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: russian-proxy
+    env: python
+    buildCommand: ""
+    startCommand: python proxy.py
+    healthCheckPath: /
+    envVars:
+      - key: AUTH
+        value: ""
+      - key: L
+        value: INFO
