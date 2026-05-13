@@ -1,1 +1,1 @@
-# No external dependencies - pure Python 3 asyncio
+# No dependencies needed - pure Python 3
