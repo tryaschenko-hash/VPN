@@ -1,0 +1,32 @@
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [
+    {
+      "port": 1080,
+      "protocol": "socks",
+      "settings": {"auth": "noaccounts", "udp": true},
+      "tag": "socks-in"
+    },
+    {
+      "port": 1081,
+      "protocol": "http",
+      "settings": {},
+      "tag": "http-in"
+    }
+  ],
+  "outbounds": [{
+    "protocol": "vless",
+    "settings": {
+      "vnext": [{
+        "address": "vpn-c6bv.onrender.com",
+        "port": 443,
+        "users": [{"id": "03cd926d-0f4b-4de2-916c-c9ecc7296680", "encryption": "none"}]
+      }]
+    },
+    "streamSettings": {
+      "network": "ws",
+      "security": "tls",
+      "wsSettings": {"path": "/"}
+    }
+  }]
+}

@@ -1,0 +1,25 @@
+port: 7890
+socks-port: 7891
+mode: Rule
+log-level: info
+
+proxies:
+  - name: VPN-Xray
+    type: vless
+    server: vpn-c6bv.onrender.com
+    port: 443
+    uuid: 03cd926d-0f4b-4de2-916c-c9ecc7296680
+    network: ws
+    tls: true
+    ws-path: /
+    cipher: none
+
+proxy-groups:
+  - name: Proxy
+    type: select
+    proxies:
+      - VPN-Xray
+      - DIRECT
+
+rules:
+  - MATCH,Proxy
