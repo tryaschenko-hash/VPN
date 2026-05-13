@@ -3,8 +3,7 @@
 set -e
 
 if [ ! -f xray ]; then
-    VERSION=v25.3.6
-    curl -L -o xray.zip "https://github.com/XTLS/Xray-core/releases/download/$VERSION/Xray-linux-64.zip"
+    curl -L -o xray.zip "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip"
     unzip -o xray.zip && rm -f xray.zip
     chmod +x xray
 fi
