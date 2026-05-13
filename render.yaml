@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: russian-proxy
+    env: python
+    buildCommand: ""
+    startCommand: python proxy.py
+    envVars:
+      - key: PORT
+        value: "1080"
+      - key: AUTH
+        value: ""  # set user:pass here
+      - key: L
+        value: INFO
