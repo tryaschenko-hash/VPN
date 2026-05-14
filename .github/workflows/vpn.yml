@@ -44,13 +44,16 @@ jobs:
         id: tunnel
         run: |
           ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
-            -R0:localhost:10000 a.pinggy.io 2>&1 > pinggy.log &
+            -R0:localhost:10000 a.pinggy.io > pinggy.log 2>&1 &
           for i in $(seq 1 30); do
-            ADDR=$(grep -oP 'tcp://\K[^ ]+' pinggy.log || true)
+            ADDR=$(grep -oP '\d+\.pinggy\.(io|link)[^ ]*' pinggy.log | head -1 || true)
+            [ -n "$ADDR" ] && break
+            ADDR=$(grep -oP 'tcp://\S+' pinggy.log | head -1 | sed 's|tcp://||' || true)
             [ -n "$ADDR" ] && break
             sleep 2
           done
           echo "addr=${ADDR:-}" >> $GITHUB_OUTPUT
+          cat pinggy.log
           if [ -n "$ADDR" ]; then
             echo "tunnel: tcp://$ADDR"
           else
