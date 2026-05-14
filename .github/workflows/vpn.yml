@@ -6,6 +6,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
+      - uses: actions/checkout@v4
       - name: Setup
         id: cfg
         run: |
@@ -37,25 +38,15 @@ jobs:
             [ -n "$URL" ] && break
             sleep 2
           done
+          echo "TUNNEL_URL=$URL"
           echo "url=$URL" >> $GITHUB_OUTPUT
-
-      - name: Result
-        run: |
-          URL="${{ steps.tunnel.outputs.url }}"
-          UUID="${{ steps.cfg.outputs.uuid }}"
-          echo "## VPN Server Running" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "vless://$UUID@${URL#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "URL: $URL" >> $GITHUB_STEP_SUMMARY
-          echo "UUID: $UUID" >> $GITHUB_STEP_SUMMARY
-          echo "Timeout: 6 hours" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Copy VLESS link above into your client."
 
       - name: Alive
         run: |
-          echo "VPN running at ${{ steps.tunnel.outputs.url }}"
+          U="${{ steps.tunnel.outputs.url }}"
+          ID="${{ steps.cfg.outputs.uuid }}"
+          echo "========================================"
+          echo "VLESS LINK:"
+          echo "vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
+          echo "========================================"
           sleep 21600
