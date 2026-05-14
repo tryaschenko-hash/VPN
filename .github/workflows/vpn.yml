@@ -44,21 +44,27 @@ jobs:
           echo "url=${URL:-}" >> $GITHUB_OUTPUT
 
       - name: Publish link
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           U="${{ steps.tunnel.outputs.url }}"
           ID="${{ steps.cfg.outputs.uuid }}"
           LINK="vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
           echo "$LINK" > vless-link.txt
-          SHA=$(gh api repos/${{ github.repository }}/contents/vless-link.txt 2>/dev/null | jq -r .sha 2>/dev/null || echo "")
+          SHA=$(curl -s -H "Authorization: token $GH_TOKEN" \
+            "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt" \
+            | jq -r .sha 2>/dev/null || echo "")
+          B64=$(echo -n "$LINK" | base64 -w0)
           if [ -n "$SHA" ]; then
-            gh api -X PUT repos/${{ github.repository }}/contents/vless-link.txt \
-              -f message="update vless link" \
-              -f content="$(echo -n "$LINK" | base64 -w0)" \
-              -f sha="$SHA"
+            curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"message\":\"update vless link\",\"content\":\"$B64\",\"sha\":\"$SHA\"}" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt" > /dev/null
           else
-            gh api -X PUT repos/${{ github.repository }}/contents/vless-link.txt \
-              -f message="add vless link" \
-              -f content="$(echo -n "$LINK" | base64 -w0)"
+            curl -s -X PUT -H "Authorization: token $GH_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"message\":\"add vless link\",\"content\":\"$B64\"}" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt" > /dev/null
           fi
           echo "VPN ready! VLESS link saved to vless-link.txt"
           echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
