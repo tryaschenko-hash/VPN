@@ -28,10 +28,9 @@ jobs:
           python3 -c "
           import json
           c={
-            'log':{'loglevel':'info'},
-            'dns':{'servers':['https+local://1.1.1.1/dns-query','https+local://8.8.8.8/dns-query','localhost'],'queryStrategy':'UseIP'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/api/v1/data'}},'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':15}}],
-            'outbounds':[{'protocol':'freedom','settings':{'domainStrategy':'UseIP'},'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':15}}]
+            'log':{'loglevel':'warning'},
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'tcp'}}],
+            'outbounds':[{'protocol':'freedom'}]
           }
           json.dump(c,open('cfg.json','w'))
           "
@@ -44,36 +43,39 @@ jobs:
       - name: Tunnel
         id: tunnel
         run: |
-          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
-          chmod +x cloudflared-linux-amd64
-          ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol quic --heartbeat-interval 5s > cf.log 2>&1 &
+          ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
+            -R0:localhost:10000 a.pinggy.io 2>&1 > pinggy.log &
           for i in $(seq 1 30); do
-            URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
-            [ -n "$URL" ] && break
+            ADDR=$(grep -oP 'tcp://\K[^ ]+' pinggy.log || true)
+            [ -n "$ADDR" ] && break
             sleep 2
           done
-          echo "url=${URL:-}" >> $GITHUB_OUTPUT
+          echo "addr=${ADDR:-}" >> $GITHUB_OUTPUT
+          if [ -n "$ADDR" ]; then
+            echo "tunnel: tcp://$ADDR"
+          else
+            echo "FAILED to get pinggy address" >&2
+          fi
 
       - name: Diagnose
         run: |
+          echo "=== xray ==="
+          ps aux | grep -v grep | grep xray || echo "xray not found"
+          echo "=== pinggy/ssh ==="
+          ps aux | grep -v grep | grep pinggy || echo "pinggy not found"
+          echo "=== pinggy log ==="
+          tail -5 pinggy.log || true
           echo "=== xray log ==="
-          tail -20 xray.log || true
-          echo "=== xray process ==="
-          ps aux | grep xray || true
-          echo "=== cloudflared log ==="
-          tail -5 cf.log || true
-          echo "=== test tunnel ==="
-          curl -svo /dev/null --connect-timeout 10 "${{ steps.tunnel.outputs.url }}" 2>&1 || true
+          tail -10 xray.log || true
 
       - name: Publish link
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          U="${{ steps.tunnel.outputs.url }}"
+          ADDR="${{ steps.tunnel.outputs.addr }}"
           ID="${{ steps.cfg.outputs.uuid }}"
-          LINK="vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2Fapi%2Fv1%2Fdata#VPN-GHA"
+          LINK="vless://$ID@$ADDR?encryption=none&security=none&type=tcp#VPN-GHA"
           echo "$LINK" > vless-link.txt
-          # standard v2ray subscription: one URI per line, base64-encoded
           echo -n "$LINK" | base64 -w0 > sub.txt
           for FILE in vless-link.txt sub.txt; do
             SHA=$(curl -sf -H "Authorization: token $TOKEN" \
@@ -92,22 +94,22 @@ jobs:
                 "https://api.github.com/repos/${{ github.repository }}/contents/$FILE"
             fi
           done
-          echo "VPN ready! Links saved."
+          echo "VPN ready!"
           echo "Manual: $LINK" >> $GITHUB_STEP_SUMMARY
           echo "Sub: https://raw.githubusercontent.com/${{ github.repository }}/main/sub.txt" >> $GITHUB_STEP_SUMMARY
 
       - name: Alive
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          URL: ${{ steps.tunnel.outputs.url }}
+          TUN_ADDR: ${{ steps.tunnel.outputs.addr }}
         shell: bash
         run: |
           set +e
           UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
-          PUBLISHED_URL="$URL"
+          CUR_ADDR="$TUN_ADDR"
           publish_link() {
-            U="$1"
-            LINK="vless://$UUID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2Fapi%2Fv1%2Fdata#VPN-GHA"
+            A="$1"
+            LINK="vless://$UUID@$A?encryption=none&security=none&type=tcp#VPN-GHA"
             echo "$LINK" > vless-link.txt
             echo -n "$LINK" | base64 -w0 > sub.txt
             for FILE in vless-link.txt sub.txt; do
@@ -129,24 +131,24 @@ jobs:
             done
             echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
           }
-          restart_cloudflared() {
-            echo "[$(date)] cloudflared restarting..."
-            pkill -f cloudflared 2>/dev/null || true
-            sleep 1
-            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol quic --heartbeat-interval 5s > cf.log 2>&1 &
+          restart_tunnel() {
+            echo "[$(date)] pinggy restarting..."
+            pkill -f 'a.pinggy.io' 2>/dev/null || true
+            sleep 2
+            ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
+              -R0:localhost:10000 a.pinggy.io 2>&1 > pinggy.log &
             for i in $(seq 1 30); do
-              NEWURL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
-              [ -n "$NEWURL" ] && break
+              NEWADDR=$(grep -oP 'tcp://\K[^ ]+' pinggy.log || true)
+              [ -n "$NEWADDR" ] && break
               sleep 2
             done
-            if [ -n "$NEWURL" ]; then
-              echo "[$(date)] new tunnel: $NEWURL"
-              PUBLISHED_URL="$NEWURL"
-              publish_link "$NEWURL"
+            if [ -n "$NEWADDR" ]; then
+              echo "[$(date)] new tunnel: tcp://$NEWADDR"
+              CUR_ADDR="$NEWADDR"
+              publish_link "$NEWADDR"
             fi
           }
           while true; do
-            # check xray locally (no -f: xray returns 400 for plain HTTP, that's OK)
             if ! curl -so /dev/null --connect-timeout 5 --max-time 10 http://localhost:10000 2>/dev/null; then
               echo "[$(date)] xray not responding, restarting..."
               pkill -f 'xray run' 2>/dev/null || true
@@ -157,17 +159,9 @@ jobs:
                 sleep 1
               done
             fi
-            # check cloudflared process
-            if ! pgrep -f cloudflared > /dev/null; then
-              echo "[$(date)] cloudflared process missing, restarting..."
-              restart_cloudflared
-            else
-              # check tunnel: 530 = origin unreachable, anything else (400) = working
-              CODE=$(curl -so /dev/null --connect-timeout 15 --max-time 20 -w '%{http_code}' "$PUBLISHED_URL" 2>/dev/null || true)
-              if [ "$CODE" = "530" ] || [ -z "$CODE" ]; then
-                echo "[$(date)] tunnel returning 530 (origin unreachable), restarting..."
-                restart_cloudflared
-              fi
+            if ! pgrep -f 'a.pinggy.io' > /dev/null; then
+              echo "[$(date)] pinggy tunnel not running, restarting..."
+              restart_tunnel
             fi
             sleep 15
           done
