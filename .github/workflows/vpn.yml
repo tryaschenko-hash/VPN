@@ -26,16 +26,40 @@ jobs:
           unzip -q Xray-linux-64.zip && rm Xray-linux-64.zip
           chmod +x xray
           python3 -c "
-          import json
-          c={
-            'log':{'loglevel':'warning'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/api'}},'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':10}}],
-            'outbounds':[{'protocol':'freedom','sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':10}}]
-          }
-          json.dump(c,open('cfg.json','w'))
-          "
+import json
+c={
+  'log':{'loglevel':'warning'},
+  'inbounds':[{
+    'port':10000,'protocol':'vless',
+    'settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},
+    'sniffing':{'enabled':True,'destOverride':['http','tls','quic']},
+    'streamSettings':{'network':'ws','wsSettings':{'path':'/api'}},
+    'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':10}
+  }],
+  'outbounds':[{
+    'protocol':'freedom',
+    'settings':{'domainStrategy':'UseIP'},
+    'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':10}
+  }],
+  'dns':{
+    'servers':[
+      {'address':'8.8.8.8','port':53},
+      {'address':'1.1.1.1','port':53},
+      'localhost'
+    ]
+  },
+  'routing':{
+    'domainStrategy':'IPIfNonMatch',
+    'rules':[
+      {'type':'field','ip':['geoip:private'],'outboundTag':'blocked'},
+      {'type':'field','protocol':['bittorrent'],'outboundTag':'blocked'}
+    ]
+  }
+}
+json.dump(c,open('cfg.json','w'))
+"
           ./xray run -c cfg.json > xray.log 2>&1 &
-          for i in $(seq 1 5); do
+          for i in $(seq 1 10); do
             ss -tlnp | grep -q 10000 && break
             sleep 1
           done
@@ -45,13 +69,28 @@ jobs:
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared-linux-amd64
-          ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol http2 --heartbeat-interval 10s > cf.log 2>&1 &
+          ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --heartbeat-interval 10s > cf.log 2>&1 &
           for i in $(seq 1 30); do
             URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
             [ -n "$URL" ] && break
             sleep 2
           done
           echo "url=${URL:-}" >> $GITHUB_OUTPUT
+
+      - name: Diagnose
+        run: |
+          echo "=== xray ==="
+          ss -tlnp | grep 10000 || echo "xray NOT listening on 10000"
+          ps aux | grep xray || echo "xray process not found"
+          echo "=== internet ==="
+          curl -so /dev/null --connect-timeout 5 -w "google.com: %{http_code}\n" https://www.google.com || echo "google.com: FAIL"
+          curl -so /dev/null --connect-timeout 5 -w "cloudflare.com: %{http_code}\n" https://www.cloudflare.com || echo "cloudflare.com: FAIL"
+          echo "=== dns ==="
+          nslookup google.com 8.8.8.8 || echo "dns FAIL"
+          echo "=== cloudflared ==="
+          tail -5 cf.log || true
+          echo "=== xray log ==="
+          tail -20 xray.log || true
 
       - name: Publish link
         env:
@@ -121,7 +160,7 @@ jobs:
             echo "[$(date)] tunnel restarting..."
             pkill -f cloudflared 2>/dev/null || true
             sleep 2
-            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol http2 --heartbeat-interval 10s > cf.log 2>&1 &
+            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --heartbeat-interval 10s > cf.log 2>&1 &
             for i in $(seq 1 30); do
               NEWURL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
               [ -n "$NEWURL" ] && break
@@ -154,6 +193,10 @@ jobs:
                 echo "[$(date)] tunnel broken (530), restarting..."
                 restart_tunnel
               fi
+            fi
+            # test xray proxying every 30 cycles (~7.5 min)
+            if [ $((COUNT % 30)) -eq 0 ]; then
+              echo "[$(date)] proxy test: $(curl -so /dev/null --connect-timeout 10 --max-time 15 -w '%{http_code}' https://www.google.com 2>/dev/null || echo FAIL)"
             fi
             # generate background traffic every 60s to keep connection alive
             COUNT=$((COUNT + 1))
