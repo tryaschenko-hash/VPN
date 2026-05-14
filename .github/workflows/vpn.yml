@@ -1,5 +1,12 @@
 name: VPN Server
-on: [workflow_dispatch]
+on:
+  schedule:
+    - cron: '0 */4 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: vpn
+  cancel-in-progress: true
 
 permissions:
   contents: write
@@ -47,22 +54,24 @@ jobs:
           echo "url=${URL:-}" >> $GITHUB_OUTPUT
 
       - name: Publish link
+        env:
+          TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
           U="${{ steps.tunnel.outputs.url }}"
           ID="${{ steps.cfg.outputs.uuid }}"
           LINK="vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
           echo "$LINK" > vless-link.txt
-          SHA=$(curl -sf -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+          SHA=$(curl -sf -H "Authorization: token $TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt" \
             | jq -r .sha 2>/dev/null || true)
           B64=$(echo -n "$LINK" | base64 -w0)
           if [ -n "$SHA" ]; then
-            curl -sf -X PUT -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            curl -sf -X PUT -H "Authorization: token $TOKEN" \
               -H "Content-Type: application/json" \
               -d "{\"message\":\"update vless link\",\"content\":\"$B64\",\"sha\":\"$SHA\"}" \
               "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt"
           else
-            curl -sf -X PUT -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            curl -sf -X PUT -H "Authorization: token $TOKEN" \
               -H "Content-Type: application/json" \
               -d "{\"message\":\"add vless link\",\"content\":\"$B64\"}" \
               "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt"
