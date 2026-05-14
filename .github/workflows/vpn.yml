@@ -30,7 +30,7 @@ jobs:
           c={
             'log':{'loglevel':'info'},
             'dns':{'servers':['https+local://1.1.1.1/dns-query','https+local://8.8.8.8/dns-query','localhost'],'queryStrategy':'UseIP'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':true,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
             'outbounds':[{'protocol':'freedom','settings':{'domainStrategy':'UseIP'}}]
           }
           json.dump(c,open('cfg.json','w'))
