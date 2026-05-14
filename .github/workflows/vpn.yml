@@ -29,8 +29,8 @@ jobs:
           import json
           c={
             'log':{'loglevel':'warning'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'streamSettings':{'network':'tcp'}}],
-            'outbounds':[{'protocol':'freedom'}]
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/api'}},'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':10}}],
+            'outbounds':[{'protocol':'freedom','sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':10}}]
           }
           json.dump(c,open('cfg.json','w'))
           "
@@ -43,41 +43,23 @@ jobs:
       - name: Tunnel
         id: tunnel
         run: |
-          wget -q https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-unknown-linux-musl.tar.gz
-          tar xzf bore-v0.5.2-x86_64-unknown-linux-musl.tar.gz
-          chmod +x bore
-          ./bore local 10000 --to bore.pub > bore.log 2>&1 &
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+          chmod +x cloudflared-linux-amd64
+          ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol http2 --heartbeat-interval 10s > cf.log 2>&1 &
           for i in $(seq 1 30); do
-            PORT=$(grep -oP 'bore\.pub:\K\d+' bore.log | head -1 || true)
-            [ -n "$PORT" ] && break
+            URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
+            [ -n "$URL" ] && break
             sleep 2
           done
-          echo "port=${PORT:-}" >> $GITHUB_OUTPUT
-          cat bore.log
-          if [ -n "$PORT" ]; then
-            echo "tunnel: bore.pub:$PORT"
-          else
-            echo "FAILED to get bore port" >&2
-          fi
-
-      - name: Diagnose
-        run: |
-          echo "=== xray ==="
-          ps aux | grep -v grep | grep xray || echo "xray not found"
-          echo "=== bore ==="
-          ps aux | grep -v grep | grep bore || echo "bore not found"
-          echo "=== bore log ==="
-          tail -10 bore.log || true
-          echo "=== xray log ==="
-          tail -10 xray.log || true
+          echo "url=${URL:-}" >> $GITHUB_OUTPUT
 
       - name: Publish link
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          PORT="${{ steps.tunnel.outputs.port }}"
+          U="${{ steps.tunnel.outputs.url }}"
           ID="${{ steps.cfg.outputs.uuid }}"
-          LINK="vless://$ID@bore.pub:$PORT?encryption=none&security=none&type=tcp#VPN-GHA"
+          LINK="vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2Fapi#VPN-GHA"
           echo "$LINK" > vless-link.txt
           echo -n "$LINK" | base64 -w0 > sub.txt
           for FILE in vless-link.txt sub.txt; do
@@ -104,15 +86,16 @@ jobs:
       - name: Alive
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          TUN_PORT: ${{ steps.tunnel.outputs.port }}
+          URL: ${{ steps.tunnel.outputs.url }}
         shell: bash
         run: |
           set +e
           UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
-          CUR_PORT="$TUN_PORT"
+          PUB_URL="$URL"
+          COUNT=0
           publish_link() {
-            P="$1"
-            LINK="vless://$UUID@bore.pub:$P?encryption=none&security=none&type=tcp#VPN-GHA"
+            U="$1"
+            LINK="vless://$UUID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2Fapi#VPN-GHA"
             echo "$LINK" > vless-link.txt
             echo -n "$LINK" | base64 -w0 > sub.txt
             for FILE in vless-link.txt sub.txt; do
@@ -134,20 +117,20 @@ jobs:
             done
             echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
           }
-          restart_bore() {
-            echo "[$(date)] bore restarting..."
-            pkill -f 'bore local' 2>/dev/null || true
+          restart_tunnel() {
+            echo "[$(date)] tunnel restarting..."
+            pkill -f cloudflared 2>/dev/null || true
             sleep 2
-            ./bore local 10000 --to bore.pub > bore.log 2>&1 &
+            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol http2 --heartbeat-interval 10s > cf.log 2>&1 &
             for i in $(seq 1 30); do
-              NEWPORT=$(grep -oP 'bore\.pub:\K\d+' bore.log | head -1 || true)
-              [ -n "$NEWPORT" ] && break
+              NEWURL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
+              [ -n "$NEWURL" ] && break
               sleep 2
             done
-            if [ -n "$NEWPORT" ]; then
-              echo "[$(date)] new tunnel: bore.pub:$NEWPORT"
-              CUR_PORT="$NEWPORT"
-              publish_link "$NEWPORT"
+            if [ -n "$NEWURL" ]; then
+              echo "[$(date)] new tunnel: $NEWURL"
+              PUB_URL="$NEWURL"
+              publish_link "$NEWURL"
             fi
           }
           while true; do
@@ -161,9 +144,22 @@ jobs:
                 sleep 1
               done
             fi
-            if ! pgrep -f 'bore local' > /dev/null; then
-              echo "[$(date)] bore not running, restarting..."
-              restart_bore
+            if ! pgrep -f cloudflared > /dev/null; then
+              echo "[$(date)] cloudflared missing, restarting..."
+              restart_tunnel
+            else
+              # check tunnel health
+              CODE=$(curl -so /dev/null --connect-timeout 15 --max-time 20 -w '%{http_code}' "$PUB_URL" 2>/dev/null || true)
+              if [ "$CODE" = "530" ] || [ -z "$CODE" ]; then
+                echo "[$(date)] tunnel broken (530), restarting..."
+                restart_tunnel
+              fi
+            fi
+            # generate background traffic every 60s to keep connection alive
+            COUNT=$((COUNT + 1))
+            if [ $COUNT -ge 4 ]; then
+              COUNT=0
+              curl -so /dev/null --connect-timeout 10 "$PUB_URL" 2>/dev/null &
             fi
             sleep 15
           done
