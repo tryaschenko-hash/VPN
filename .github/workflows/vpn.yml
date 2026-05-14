@@ -43,12 +43,10 @@ jobs:
       - name: Tunnel
         id: tunnel
         run: |
-          ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
-            -R0:localhost:10000 a.pinggy.io > pinggy.log 2>&1 &
+          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
+            -R 0:localhost:10000 serveo.net > pinggy.log 2>&1 &
           for i in $(seq 1 30); do
-            ADDR=$(grep -oP '\d+\.pinggy\.(io|link)[^ ]*' pinggy.log | head -1 || true)
-            [ -n "$ADDR" ] && break
-            ADDR=$(grep -oP 'tcp://\S+' pinggy.log | head -1 | sed 's|tcp://||' || true)
+            ADDR=$(grep -oP 'serveo\.net:\d+' pinggy.log | head -1 || true)
             [ -n "$ADDR" ] && break
             sleep 2
           done
@@ -57,7 +55,7 @@ jobs:
           if [ -n "$ADDR" ]; then
             echo "tunnel: tcp://$ADDR"
           else
-            echo "FAILED to get pinggy address" >&2
+            echo "FAILED to get serveo address" >&2
           fi
 
       - name: Diagnose
@@ -135,13 +133,13 @@ jobs:
             echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
           }
           restart_tunnel() {
-            echo "[$(date)] pinggy restarting..."
-            pkill -f 'a.pinggy.io' 2>/dev/null || true
+            echo "[$(date)] serveo restarting..."
+            pkill -f 'serveo.net' 2>/dev/null || true
             sleep 2
-            ssh -p 443 -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
-              -R0:localhost:10000 a.pinggy.io 2>&1 > pinggy.log &
+            ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
+              -R 0:localhost:10000 serveo.net > pinggy.log 2>&1 &
             for i in $(seq 1 30); do
-              NEWADDR=$(grep -oP 'tcp://\K[^ ]+' pinggy.log || true)
+              NEWADDR=$(grep -oP 'serveo\.net:\d+' pinggy.log | head -1 || true)
               [ -n "$NEWADDR" ] && break
               sleep 2
             done
@@ -162,8 +160,8 @@ jobs:
                 sleep 1
               done
             fi
-            if ! pgrep -f 'a.pinggy.io' > /dev/null; then
-              echo "[$(date)] pinggy tunnel not running, restarting..."
+            if ! pgrep -f 'serveo.net' > /dev/null; then
+              echo "[$(date)] serveo tunnel not running, restarting..."
               restart_tunnel
             fi
             sleep 15
