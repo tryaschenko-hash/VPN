@@ -73,23 +73,28 @@ jobs:
           ID="${{ steps.cfg.outputs.uuid }}"
           LINK="vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
           echo "$LINK" > vless-link.txt
-          SHA=$(curl -sf -H "Authorization: token $TOKEN" \
-            "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt" \
-            | jq -r .sha 2>/dev/null || true)
-          B64=$(echo -n "$LINK" | base64 -w0)
-          if [ -n "$SHA" ]; then
-            curl -sf -X PUT -H "Authorization: token $TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"message\":\"update vless link\",\"content\":\"$B64\",\"sha\":\"$SHA\"}" \
-              "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt"
-          else
-            curl -sf -X PUT -H "Authorization: token $TOKEN" \
-              -H "Content-Type: application/json" \
-              -d "{\"message\":\"add vless link\",\"content\":\"$B64\"}" \
-              "https://api.github.com/repos/${{ github.repository }}/contents/vless-link.txt"
-          fi
-          echo "VPN ready! VLESS link saved to vless-link.txt"
-          echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
+          # subscription format: base64 of the vless link
+          echo -n "$LINK" | base64 -w0 > sub.txt
+          for FILE in vless-link.txt sub.txt; do
+            SHA=$(curl -sf -H "Authorization: token $TOKEN" \
+              "https://api.github.com/repos/${{ github.repository }}/contents/$FILE" \
+              | jq -r .sha 2>/dev/null || true)
+            B64=$(base64 -w0 < "$FILE")
+            if [ -n "$SHA" ]; then
+              curl -sf -X PUT -H "Authorization: token $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"message\":\"update $FILE\",\"content\":\"$B64\",\"sha\":\"$SHA\"}" \
+                "https://api.github.com/repos/${{ github.repository }}/contents/$FILE"
+            else
+              curl -sf -X PUT -H "Authorization: token $TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{\"message\":\"add $FILE\",\"content\":\"$B64\"}" \
+                "https://api.github.com/repos/${{ github.repository }}/contents/$FILE"
+            fi
+          done
+          echo "VPN ready! Links saved."
+          echo "Manual: $LINK" >> $GITHUB_STEP_SUMMARY
+          echo "Sub: https://raw.githubusercontent.com/${{ github.repository }}/main/sub.txt" >> $GITHUB_STEP_SUMMARY
 
       - name: Alive
         run: sleep 21600
