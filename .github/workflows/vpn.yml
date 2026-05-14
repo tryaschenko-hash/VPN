@@ -100,7 +100,9 @@ jobs:
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           URL: ${{ steps.tunnel.outputs.url }}
+        shell: bash
         run: |
+          set +e
           UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
           PUBLISHED_URL="$URL"
           publish_link() {
@@ -161,7 +163,7 @@ jobs:
               restart_cloudflared
             else
               # check tunnel: 530 = origin unreachable, anything else (400) = working
-              CODE=$(curl -so /dev/null --connect-timeout 15 --max-time 20 -w '%{http_code}' "$PUBLISHED_URL" 2>/dev/null)
+              CODE=$(curl -so /dev/null --connect-timeout 15 --max-time 20 -w '%{http_code}' "$PUBLISHED_URL" 2>/dev/null || true)
               if [ "$CODE" = "530" ] || [ -z "$CODE" ]; then
                 echo "[$(date)] tunnel returning 530 (origin unreachable), restarting..."
                 restart_cloudflared
