@@ -1,1 +1,1 @@
-vless://03cd926d-0f4b-4de2-916c-c9ecc7296680@vpn-c6bv.onrender.com:443?encryption=none&security=tls&type=ws&path=%2F#VPN-Xray
+dmxlc3M6Ly8wM2NkOTI2ZC0wZjRiLTRkZTItOTE2Yy1jOWVjYzcyOTY2ODBAd2VzdGVybi1hZmZpbGlhdGVkLXdpZmktc29saWQudHJ5Y2xvdWRmbGFyZS5jb206NDQzP2VuY3J5cHRpb249bm9uZSZzZWN1cml0eT10bHMmdHlwZT13cyZwYXRoPSUyRiNWUE4tR0hB
