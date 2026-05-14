@@ -97,4 +97,54 @@ jobs:
           echo "Sub: https://raw.githubusercontent.com/${{ github.repository }}/main/sub.txt" >> $GITHUB_STEP_SUMMARY
 
       - name: Alive
-        run: sleep 21600
+        env:
+          TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
+          publish_link() {
+            U="$1"
+            LINK="vless://$UUID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
+            echo "$LINK" > vless-link.txt
+            echo -n "$LINK" | base64 -w0 > sub.txt
+            for FILE in vless-link.txt sub.txt; do
+              SHA=$(curl -sf -H "Authorization: token $TOKEN" \
+                "https://api.github.com/repos/${{ github.repository }}/contents/$FILE" \
+                | jq -r .sha 2>/dev/null || true)
+              B64=$(base64 -w0 < "$FILE")
+              if [ -n "$SHA" ]; then
+                curl -sf -X PUT -H "Authorization: token $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"message\":\"update $FILE\",\"content\":\"$B64\",\"sha\":\"$SHA\"}" \
+                  "https://api.github.com/repos/${{ github.repository }}/contents/$FILE" > /dev/null 2>&1
+              else
+                curl -sf -X PUT -H "Authorization: token $TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "{\"message\":\"add $FILE\",\"content\":\"$B64\"}" \
+                  "https://api.github.com/repos/${{ github.repository }}/contents/$FILE" > /dev/null 2>&1
+              fi
+            done
+            echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
+          }
+          while true; do
+            # restart xray if dead
+            if ! pgrep -f 'xray run' > /dev/null; then
+              echo "[$(date)] xray died, restarting..."
+              ./xray run -c cfg.json > xray.log 2>&1 &
+              sleep 2
+            fi
+            # restart cloudflared if dead
+            if ! pgrep -f cloudflared > /dev/null; then
+              echo "[$(date)] cloudflared died, restarting tunnel..."
+              ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate > cf.log 2>&1 &
+              for i in $(seq 1 30); do
+                URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
+                [ -n "$URL" ] && break
+                sleep 2
+              done
+              if [ -n "$URL" ]; then
+                echo "[$(date)] new tunnel: $URL"
+                publish_link "$URL"
+              fi
+            fi
+            sleep 30
+          done
