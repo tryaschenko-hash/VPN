@@ -144,16 +144,23 @@ jobs:
             fi
           }
           while true; do
-            if ! pgrep -f 'xray run' > /dev/null; then
-              echo "[$(date)] xray died, restarting..."
+            # check xray locally; restart if not responding
+            if ! curl -sfo /dev/null --connect-timeout 5 http://localhost:10000 2>/dev/null; then
+              echo "[$(date)] xray not responding, restarting..."
+              pkill -f 'xray run' 2>/dev/null || true
+              sleep 1
               ./xray run -c cfg.json > xray.log 2>&1 &
-              sleep 2
+              for i in $(seq 1 10); do
+                curl -sfo /dev/null --connect-timeout 2 http://localhost:10000 2>/dev/null && break
+                sleep 1
+              done
             fi
-            if ! curl -sfo /dev/null --connect-timeout 15 --max-time 20 "$PUBLISHED_URL" 2>/dev/null; then
-              echo "[$(date)] tunnel not responding, restarting..."
-              restart_cloudflared
-            elif ! pgrep -f cloudflared > /dev/null; then
+            # check cloudflared tunnel
+            if ! pgrep -f cloudflared > /dev/null; then
               echo "[$(date)] cloudflared process missing, restarting..."
+              restart_cloudflared
+            elif ! curl -sfo /dev/null --connect-timeout 15 --max-time 20 "$PUBLISHED_URL" 2>/dev/null; then
+              echo "[$(date)] tunnel not responding (530/timeout), restarting..."
               restart_cloudflared
             fi
             sleep 30
