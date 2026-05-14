@@ -73,7 +73,7 @@ jobs:
           ID="${{ steps.cfg.outputs.uuid }}"
           LINK="vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
           echo "$LINK" > vless-link.txt
-          # subscription format: base64 of the vless link
+          # standard v2ray subscription: one URI per line, base64-encoded
           echo -n "$LINK" | base64 -w0 > sub.txt
           for FILE in vless-link.txt sub.txt; do
             SHA=$(curl -sf -H "Authorization: token $TOKEN" \
