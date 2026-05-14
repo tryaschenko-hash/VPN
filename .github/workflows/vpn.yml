@@ -46,7 +46,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
             -R 80:localhost:10000 localhost.run > tunnel.log 2>&1 &
           for i in $(seq 1 30); do
-            URL=$(grep -oP 'https://[a-z0-9-]+\.localhost\.run' tunnel.log | head -1 || true)
+            URL=$(grep -oP 'https://[a-z0-9-]+\.localhost\.run' tunnel.log | grep -v admin | head -1 || true)
             [ -n "$URL" ] && break
             sleep 2
           done
