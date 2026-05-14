@@ -1,1 +1,1 @@
-vless://03cd926d-0f4b-4de2-916c-c9ecc7296680@bore.pub:21211?encryption=none&security=none&type=tcp#VPN-GHA
+vless://03cd926d-0f4b-4de2-916c-c9ecc7296680@bore.pub:12649?encryption=none&security=none&type=tcp#VPN-GHA
