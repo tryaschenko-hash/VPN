@@ -1,0 +1,36 @@
+version: 2.1
+jobs:
+  serve:
+    machine:
+      image: ubuntu-2204:2024.01.1
+    resource_class: medium
+    steps:
+      - checkout
+      - run:
+          name: Serve
+          command: |
+            UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
+            wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+            unzip -q Xray-linux-64.zip && rm Xray-linux-64.zip
+            chmod +x xray
+            cat > cfg.json <<EOL
+            {"log":{"loglevel":"warning"},"inbounds":[{"port":10000,"protocol":"vless","settings":{"clients":[{"id":"$UUID","encryption":"none"}],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/"}}}],"outbounds":[{"protocol":"freedom"}]}
+EOL
+            ./xray run -c cfg.json &
+            sleep 2
+            wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
+            chmod +x cloudflared-linux-amd64
+            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate > cf.log 2>&1 &
+            for i in $(seq 30); do
+              URL=$(grep -oP 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log | head -1)
+              [ -n "$URL" ] && break
+              sleep 2
+            done
+            echo "VLESS: vless://$UUID@${URL#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-CircleCI"
+            sleep 21600
+
+workflows:
+  version: 2
+  serve-workflow:
+    jobs:
+      - serve
