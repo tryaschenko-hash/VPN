@@ -29,7 +29,7 @@ jobs:
           import json
           c={
             'log':{'loglevel':'warning'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'tcp'}}],
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
             'outbounds':[{'protocol':'freedom'}]
           }
           json.dump(c,open('cfg.json','w'))
@@ -44,28 +44,28 @@ jobs:
         id: tunnel
         run: |
           ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
-            -R 0:localhost:10000 serveo.net > pinggy.log 2>&1 &
+            -R 80:localhost:10000 localhost.run > tunnel.log 2>&1 &
           for i in $(seq 1 30); do
-            ADDR=$(grep -oP 'serveo\.net:\d+' pinggy.log | head -1 || true)
-            [ -n "$ADDR" ] && break
+            URL=$(grep -oP 'https://[a-z0-9-]+\.localhost\.run' tunnel.log | head -1 || true)
+            [ -n "$URL" ] && break
             sleep 2
           done
-          echo "addr=${ADDR:-}" >> $GITHUB_OUTPUT
-          cat pinggy.log
-          if [ -n "$ADDR" ]; then
-            echo "tunnel: tcp://$ADDR"
+          echo "url=${URL:-}" >> $GITHUB_OUTPUT
+          cat tunnel.log
+          if [ -n "$URL" ]; then
+            echo "tunnel: $URL"
           else
-            echo "FAILED to get serveo address" >&2
+            echo "FAILED to get localhost.run URL" >&2
           fi
 
       - name: Diagnose
         run: |
           echo "=== xray ==="
           ps aux | grep -v grep | grep xray || echo "xray not found"
-          echo "=== pinggy/ssh ==="
-          ps aux | grep -v grep | grep pinggy || echo "pinggy not found"
-          echo "=== pinggy log ==="
-          tail -5 pinggy.log || true
+          echo "=== tunnel process ==="
+          ps aux | grep -v grep | grep -E 'localhost.run|ssh' | head -5 || echo "tunnel not found"
+          echo "=== tunnel log ==="
+          tail -5 tunnel.log || true
           echo "=== xray log ==="
           tail -10 xray.log || true
 
@@ -73,9 +73,9 @@ jobs:
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          ADDR="${{ steps.tunnel.outputs.addr }}"
+          U="${{ steps.tunnel.outputs.url }}"
           ID="${{ steps.cfg.outputs.uuid }}"
-          LINK="vless://$ID@$ADDR?encryption=none&security=none&type=tcp#VPN-GHA"
+          LINK="vless://$ID@${U#https://}:443?encryption=none&security=none&type=ws&path=%2F#VPN-GHA"
           echo "$LINK" > vless-link.txt
           echo -n "$LINK" | base64 -w0 > sub.txt
           for FILE in vless-link.txt sub.txt; do
@@ -102,15 +102,15 @@ jobs:
       - name: Alive
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          TUN_ADDR: ${{ steps.tunnel.outputs.addr }}
+          TUN_URL: ${{ steps.tunnel.outputs.url }}
         shell: bash
         run: |
           set +e
           UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
-          CUR_ADDR="$TUN_ADDR"
+          CUR_URL="$TUN_URL"
           publish_link() {
-            A="$1"
-            LINK="vless://$UUID@$A?encryption=none&security=none&type=tcp#VPN-GHA"
+            U="$1"
+            LINK="vless://$UUID@${U#https://}:443?encryption=none&security=none&type=ws&path=%2F#VPN-GHA"
             echo "$LINK" > vless-link.txt
             echo -n "$LINK" | base64 -w0 > sub.txt
             for FILE in vless-link.txt sub.txt; do
@@ -133,20 +133,20 @@ jobs:
             echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
           }
           restart_tunnel() {
-            echo "[$(date)] serveo restarting..."
-            pkill -f 'serveo.net' 2>/dev/null || true
+            echo "[$(date)] tunnel restarting..."
+            pkill -f 'localhost.run' 2>/dev/null || true
             sleep 2
             ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
-              -R 0:localhost:10000 serveo.net > pinggy.log 2>&1 &
+              -R 80:localhost:10000 localhost.run > tunnel.log 2>&1 &
             for i in $(seq 1 30); do
-              NEWADDR=$(grep -oP 'serveo\.net:\d+' pinggy.log | head -1 || true)
-              [ -n "$NEWADDR" ] && break
+              NEWURL=$(grep -oP 'https://[a-z0-9-]+\.localhost\.run' tunnel.log | head -1 || true)
+              [ -n "$NEWURL" ] && break
               sleep 2
             done
-            if [ -n "$NEWADDR" ]; then
-              echo "[$(date)] new tunnel: tcp://$NEWADDR"
-              CUR_ADDR="$NEWADDR"
-              publish_link "$NEWADDR"
+            if [ -n "$NEWURL" ]; then
+              echo "[$(date)] new tunnel: $NEWURL"
+              CUR_URL="$NEWURL"
+              publish_link "$NEWURL"
             fi
           }
           while true; do
@@ -160,8 +160,8 @@ jobs:
                 sleep 1
               done
             fi
-            if ! pgrep -f 'serveo.net' > /dev/null; then
-              echo "[$(date)] serveo tunnel not running, restarting..."
+            if ! pgrep -f 'localhost.run' > /dev/null; then
+              echo "[$(date)] tunnel not running, restarting..."
               restart_tunnel
             fi
             sleep 15
