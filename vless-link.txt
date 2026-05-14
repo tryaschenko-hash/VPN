@@ -1,1 +1,1 @@
-vless://03cd926d-0f4b-4de2-916c-c9ecc7296680@probably-mins-minute-groove.trycloudflare.com:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA
+vless://03cd926d-0f4b-4de2-916c-c9ecc7296680@roulette-judy-punk-dimensional.trycloudflare.com:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA
