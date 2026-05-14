@@ -1,1 +1,1 @@
-vless://03cd926d-0f4b-4de2-916c-c9ecc7296680@admin.localhost.run:443?encryption=none&security=none&type=ws&path=%2F#VPN-GHA
+vless://03cd926d-0f4b-4de2-916c-c9ecc7296680@:443?encryption=none&security=none&type=ws&path=%2F#VPN-GHA
