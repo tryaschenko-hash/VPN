@@ -99,8 +99,10 @@ jobs:
       - name: Alive
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          URL: ${{ steps.tunnel.outputs.url }}
         run: |
           UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
+          PUBLISHED_URL="$URL"
           publish_link() {
             U="$1"
             LINK="vless://$UUID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
@@ -125,26 +127,34 @@ jobs:
             done
             echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
           }
+          restart_cloudflared() {
+            echo "[$(date)] cloudflared restarting..."
+            pkill -f cloudflared 2>/dev/null || true
+            sleep 1
+            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate > cf.log 2>&1 &
+            for i in $(seq 1 30); do
+              NEWURL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
+              [ -n "$NEWURL" ] && break
+              sleep 2
+            done
+            if [ -n "$NEWURL" ]; then
+              echo "[$(date)] new tunnel: $NEWURL"
+              PUBLISHED_URL="$NEWURL"
+              publish_link "$NEWURL"
+            fi
+          }
           while true; do
-            # restart xray if dead
             if ! pgrep -f 'xray run' > /dev/null; then
               echo "[$(date)] xray died, restarting..."
               ./xray run -c cfg.json > xray.log 2>&1 &
               sleep 2
             fi
-            # restart cloudflared if dead
-            if ! pgrep -f cloudflared > /dev/null; then
-              echo "[$(date)] cloudflared died, restarting tunnel..."
-              ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate > cf.log 2>&1 &
-              for i in $(seq 1 30); do
-                URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
-                [ -n "$URL" ] && break
-                sleep 2
-              done
-              if [ -n "$URL" ]; then
-                echo "[$(date)] new tunnel: $URL"
-                publish_link "$URL"
-              fi
+            if ! curl -sfo /dev/null --connect-timeout 15 --max-time 20 "$PUBLISHED_URL" 2>/dev/null; then
+              echo "[$(date)] tunnel not responding, restarting..."
+              restart_cloudflared
+            elif ! pgrep -f cloudflared > /dev/null; then
+              echo "[$(date)] cloudflared process missing, restarting..."
+              restart_cloudflared
             fi
             sleep 30
           done
