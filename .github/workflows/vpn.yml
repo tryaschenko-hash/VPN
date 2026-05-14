@@ -144,24 +144,28 @@ jobs:
             fi
           }
           while true; do
-            # check xray locally; restart if not responding
-            if ! curl -sfo /dev/null --connect-timeout 5 http://localhost:10000 2>/dev/null; then
+            # check xray locally (no -f: xray returns 400 for plain HTTP, that's OK)
+            if ! curl -so /dev/null --connect-timeout 5 --max-time 10 http://localhost:10000 2>/dev/null; then
               echo "[$(date)] xray not responding, restarting..."
               pkill -f 'xray run' 2>/dev/null || true
               sleep 1
               ./xray run -c cfg.json > xray.log 2>&1 &
               for i in $(seq 1 10); do
-                curl -sfo /dev/null --connect-timeout 2 http://localhost:10000 2>/dev/null && break
+                curl -so /dev/null --connect-timeout 2 http://localhost:10000 2>/dev/null && break
                 sleep 1
               done
             fi
-            # check cloudflared tunnel
+            # check cloudflared process
             if ! pgrep -f cloudflared > /dev/null; then
               echo "[$(date)] cloudflared process missing, restarting..."
               restart_cloudflared
-            elif ! curl -sfo /dev/null --connect-timeout 15 --max-time 20 "$PUBLISHED_URL" 2>/dev/null; then
-              echo "[$(date)] tunnel not responding (530/timeout), restarting..."
-              restart_cloudflared
+            else
+              # check tunnel: 530 = origin unreachable, anything else (400) = working
+              CODE=$(curl -so /dev/null --connect-timeout 15 --max-time 20 -w '%{http_code}' "$PUBLISHED_URL" 2>/dev/null)
+              if [ "$CODE" = "530" ] || [ -z "$CODE" ]; then
+                echo "[$(date)] tunnel returning 530 (origin unreachable), restarting..."
+                restart_cloudflared
+              fi
             fi
             sleep 30
           done
