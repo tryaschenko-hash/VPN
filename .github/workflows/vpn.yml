@@ -30,8 +30,8 @@ jobs:
           c={
             'log':{'loglevel':'info'},
             'dns':{'servers':['https+local://1.1.1.1/dns-query','https+local://8.8.8.8/dns-query','localhost'],'queryStrategy':'UseIP'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
-            'outbounds':[{'protocol':'freedom','settings':{'domainStrategy':'UseIP'}}]
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}},'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':15}}],
+            'outbounds':[{'protocol':'freedom','settings':{'domainStrategy':'UseIP'},'sockopt':{'tcpKeepAliveIdle':30,'tcpKeepAliveInterval':15}}]
           }
           json.dump(c,open('cfg.json','w'))
           "
@@ -46,7 +46,7 @@ jobs:
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64
           chmod +x cloudflared-linux-amd64
-          ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate > cf.log 2>&1 &
+          ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol http2 --heartbeat-interval 10s > cf.log 2>&1 &
           for i in $(seq 1 30); do
             URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
             [ -n "$URL" ] && break
@@ -133,7 +133,7 @@ jobs:
             echo "[$(date)] cloudflared restarting..."
             pkill -f cloudflared 2>/dev/null || true
             sleep 1
-            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate > cf.log 2>&1 &
+            ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate --protocol http2 --heartbeat-interval 10s > cf.log 2>&1 &
             for i in $(seq 1 30); do
               NEWURL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
               [ -n "$NEWURL" ] && break
@@ -169,5 +169,5 @@ jobs:
                 restart_cloudflared
               fi
             fi
-            sleep 30
+            sleep 15
           done
