@@ -28,9 +28,10 @@ jobs:
           python3 -c "
           import json
           c={
-            'log':{'loglevel':'warning'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}]},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
-            'outbounds':[{'protocol':'freedom'}]
+            'log':{'loglevel':'info'},
+            'dns':{'servers':['https+local://1.1.1.1/dns-query','https+local://8.8.8.8/dns-query','localhost'],'queryStrategy':'UseIP'},
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':true,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
+            'outbounds':[{'protocol':'freedom','settings':{'domainStrategy':'UseIP'}}]
           }
           json.dump(c,open('cfg.json','w'))
           "
@@ -52,6 +53,17 @@ jobs:
             sleep 2
           done
           echo "url=${URL:-}" >> $GITHUB_OUTPUT
+
+      - name: Diagnose
+        run: |
+          echo "=== xray log ==="
+          tail -20 xray.log || true
+          echo "=== xray process ==="
+          ps aux | grep xray || true
+          echo "=== cloudflared log ==="
+          tail -5 cf.log || true
+          echo "=== test tunnel ==="
+          curl -svo /dev/null --connect-timeout 10 "${{ steps.tunnel.outputs.url }}" 2>&1 || true
 
       - name: Publish link
         env:
