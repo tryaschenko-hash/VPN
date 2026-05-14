@@ -29,7 +29,7 @@ jobs:
           import json
           c={
             'log':{'loglevel':'warning'},
-            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'sniffing':{'enabled':True,'destOverride':['http','tls']},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID'}],'decryption':'none'},'streamSettings':{'network':'tcp'}}],
             'outbounds':[{'protocol':'freedom'}]
           }
           json.dump(c,open('cfg.json','w'))
@@ -43,29 +43,31 @@ jobs:
       - name: Tunnel
         id: tunnel
         run: |
-          ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
-            -R 80:localhost:10000 localhost.run > tunnel.log 2>&1 &
+          wget -q https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-unknown-linux-musl.tar.gz
+          tar xzf bore-v0.5.2-x86_64-unknown-linux-musl.tar.gz
+          chmod +x bore
+          ./bore local 10000 --to bore.pub > bore.log 2>&1 &
           for i in $(seq 1 30); do
-            URL=$(grep -oP 'https://[a-z0-9-]+\.localhost\.run' tunnel.log | grep -v admin | head -1 || true)
-            [ -n "$URL" ] && break
+            PORT=$(grep -oP 'bore\.pub:\K\d+' bore.log | head -1 || true)
+            [ -n "$PORT" ] && break
             sleep 2
           done
-          echo "url=${URL:-}" >> $GITHUB_OUTPUT
-          cat tunnel.log
-          if [ -n "$URL" ]; then
-            echo "tunnel: $URL"
+          echo "port=${PORT:-}" >> $GITHUB_OUTPUT
+          cat bore.log
+          if [ -n "$PORT" ]; then
+            echo "tunnel: bore.pub:$PORT"
           else
-            echo "FAILED to get localhost.run URL" >&2
+            echo "FAILED to get bore port" >&2
           fi
 
       - name: Diagnose
         run: |
           echo "=== xray ==="
           ps aux | grep -v grep | grep xray || echo "xray not found"
-          echo "=== tunnel process ==="
-          ps aux | grep -v grep | grep -E 'localhost.run|ssh' | head -5 || echo "tunnel not found"
-          echo "=== tunnel log ==="
-          tail -5 tunnel.log || true
+          echo "=== bore ==="
+          ps aux | grep -v grep | grep bore || echo "bore not found"
+          echo "=== bore log ==="
+          tail -10 bore.log || true
           echo "=== xray log ==="
           tail -10 xray.log || true
 
@@ -73,9 +75,9 @@ jobs:
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
         run: |
-          U="${{ steps.tunnel.outputs.url }}"
+          PORT="${{ steps.tunnel.outputs.port }}"
           ID="${{ steps.cfg.outputs.uuid }}"
-          LINK="vless://$ID@${U#https://}:443?encryption=none&security=none&type=ws&path=%2F#VPN-GHA"
+          LINK="vless://$ID@bore.pub:$PORT?encryption=none&security=none&type=tcp#VPN-GHA"
           echo "$LINK" > vless-link.txt
           echo -n "$LINK" | base64 -w0 > sub.txt
           for FILE in vless-link.txt sub.txt; do
@@ -102,15 +104,15 @@ jobs:
       - name: Alive
         env:
           TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
-          TUN_URL: ${{ steps.tunnel.outputs.url }}
+          TUN_PORT: ${{ steps.tunnel.outputs.port }}
         shell: bash
         run: |
           set +e
           UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
-          CUR_URL="$TUN_URL"
+          CUR_PORT="$TUN_PORT"
           publish_link() {
-            U="$1"
-            LINK="vless://$UUID@${U#https://}:443?encryption=none&security=none&type=ws&path=%2F#VPN-GHA"
+            P="$1"
+            LINK="vless://$UUID@bore.pub:$P?encryption=none&security=none&type=tcp#VPN-GHA"
             echo "$LINK" > vless-link.txt
             echo -n "$LINK" | base64 -w0 > sub.txt
             for FILE in vless-link.txt sub.txt; do
@@ -132,21 +134,20 @@ jobs:
             done
             echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
           }
-          restart_tunnel() {
-            echo "[$(date)] tunnel restarting..."
-            pkill -f 'localhost.run' 2>/dev/null || true
+          restart_bore() {
+            echo "[$(date)] bore restarting..."
+            pkill -f 'bore local' 2>/dev/null || true
             sleep 2
-            ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=15 \
-              -R 80:localhost:10000 localhost.run > tunnel.log 2>&1 &
+            ./bore local 10000 --to bore.pub > bore.log 2>&1 &
             for i in $(seq 1 30); do
-              NEWURL=$(grep -oP 'https://[a-z0-9-]+\.localhost\.run' tunnel.log | head -1 || true)
-              [ -n "$NEWURL" ] && break
+              NEWPORT=$(grep -oP 'bore\.pub:\K\d+' bore.log | head -1 || true)
+              [ -n "$NEWPORT" ] && break
               sleep 2
             done
-            if [ -n "$NEWURL" ]; then
-              echo "[$(date)] new tunnel: $NEWURL"
-              CUR_URL="$NEWURL"
-              publish_link "$NEWURL"
+            if [ -n "$NEWPORT" ]; then
+              echo "[$(date)] new tunnel: bore.pub:$NEWPORT"
+              CUR_PORT="$NEWPORT"
+              publish_link "$NEWPORT"
             fi
           }
           while true; do
@@ -160,9 +161,9 @@ jobs:
                 sleep 1
               done
             fi
-            if ! pgrep -f 'localhost.run' > /dev/null; then
-              echo "[$(date)] tunnel not running, restarting..."
-              restart_tunnel
+            if ! pgrep -f 'bore local' > /dev/null; then
+              echo "[$(date)] bore not running, restarting..."
+              restart_bore
             fi
             sleep 15
           done
