@@ -1,29 +1,28 @@
 name: VPN Server
-on:
-  workflow_dispatch:
-    inputs:
-      uuid:
-        description: VLESS UUID (leave empty for default)
-        required: false
+on: [workflow_dispatch]
 
 jobs:
   serve:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v4
       - name: Setup
         id: cfg
         run: |
-          UUID="${{ github.event.inputs.uuid }}"
-          [ -z "$UUID" ] && UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
+          UUID="03cd926d-0f4b-4de2-916c-c9ecc7296680"
           echo "uuid=$UUID" >> $GITHUB_OUTPUT
           wget -q https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
           unzip -q Xray-linux-64.zip && rm Xray-linux-64.zip
           chmod +x xray
-          cat > cfg.json <<EOL
-          {"log":{"loglevel":"warning"},"inbounds":[{"port":10000,"protocol":"vless","settings":{"clients":[{"id":"$UUID","encryption":"none"}],"decryption":"none"},"streamSettings":{"network":"ws","wsSettings":{"path":"/"}}}],"outbounds":[{"protocol":"freedom"}]}
-EOL
+          python3 -c "
+          import json
+          c={
+            'log':{'loglevel':'warning'},
+            'inbounds':[{'port':10000,'protocol':'vless','settings':{'clients':[{'id':'$UUID','encryption':'none'}],'decryption':'none'},'streamSettings':{'network':'ws','wsSettings':{'path':'/'}}}],
+            'outbounds':[{'protocol':'freedom'}]
+          }
+          json.dump(c,open('cfg.json','w'))
+          "
           ./xray run -c cfg.json &
           sleep 2
 
@@ -46,20 +45,17 @@ EOL
           UUID="${{ steps.cfg.outputs.uuid }}"
           echo "## VPN Server Running" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### VLESS Link (добавь в v2rayN / Nekoray / Clash / Happ)" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "vless://$UUID@${URL#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Tunnel Status" >> $GITHUB_STEP_SUMMARY
-          echo "- URL: $URL" >> $GITHUB_STEP_SUMMARY
-          echo "- UUID: $UUID" >> $GITHUB_STEP_SUMMARY
-          echo "- Timeout: 6 hours" >> $GITHUB_STEP_SUMMARY
+          echo "URL: $URL" >> $GITHUB_STEP_SUMMARY
+          echo "UUID: $UUID" >> $GITHUB_STEP_SUMMARY
+          echo "Timeout: 6 hours" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Скопируй VLESS Link выше и добавь в клиент."
+          echo "Copy VLESS link above into your client."
 
       - name: Alive
         run: |
           echo "VPN running at ${{ steps.tunnel.outputs.url }}"
-          echo "6 hours remaining. Trigger new run to extend."
           sleep 21600
