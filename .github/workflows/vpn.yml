@@ -24,8 +24,11 @@ jobs:
           }
           json.dump(c,open('cfg.json','w'))
           "
-          ./xray run -c cfg.json &
-          sleep 2
+          ./xray run -c cfg.json > xray.log 2>&1 &
+          for i in $(seq 1 5); do
+            ss -tlnp | grep -q 10000 && break
+            sleep 1
+          done
 
       - name: Tunnel
         id: tunnel
@@ -34,11 +37,11 @@ jobs:
           chmod +x cloudflared-linux-amd64
           ./cloudflared-linux-amd64 tunnel --url http://localhost:10000 --no-autoupdate > cf.log 2>&1 &
           for i in $(seq 1 30); do
-            URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log)
+            URL=$(grep -oPm1 'https://[a-z0-9-]+\.trycloudflare\.com' cf.log || true)
             [ -n "$URL" ] && break
             sleep 2
           done
-          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "url=${URL:-}" >> $GITHUB_OUTPUT
 
       - name: Publish link
         run: |
@@ -46,11 +49,18 @@ jobs:
           ID="${{ steps.cfg.outputs.uuid }}"
           LINK="vless://$ID@${U#https://}:443?encryption=none&security=tls&type=ws&path=%2F#VPN-GHA"
           echo "$LINK" > vless-link.txt
-          gh api -X PUT repos/${{ github.repository }}/contents/vless-link.txt \
-            -f message="update link" \
-            -f content="$(echo -n "$LINK" | base64 -w0)" \
-            -f sha="$(gh api repos/${{ github.repository }}/contents/vless-link.txt 2>/dev/null | jq -r .sha 2>/dev/null || echo 'null')"
-          echo "VPN ready. Link saved to vless-link.txt"
+          SHA=$(gh api repos/${{ github.repository }}/contents/vless-link.txt 2>/dev/null | jq -r .sha 2>/dev/null || echo "")
+          if [ -n "$SHA" ]; then
+            gh api -X PUT repos/${{ github.repository }}/contents/vless-link.txt \
+              -f message="update vless link" \
+              -f content="$(echo -n "$LINK" | base64 -w0)" \
+              -f sha="$SHA"
+          else
+            gh api -X PUT repos/${{ github.repository }}/contents/vless-link.txt \
+              -f message="add vless link" \
+              -f content="$(echo -n "$LINK" | base64 -w0)"
+          fi
+          echo "VPN ready! VLESS link saved to vless-link.txt"
           echo "VLESS: $LINK" >> $GITHUB_STEP_SUMMARY
 
       - name: Alive
